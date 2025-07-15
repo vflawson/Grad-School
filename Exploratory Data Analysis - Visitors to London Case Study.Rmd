@@ -1,0 +1,325 @@
+---
+title: "Exploratory Data Analysis - London Visitors Case Study"
+subtitle: Data from https://data.london.gov.uk/dataset/number-international-visitors-london
+output: html_notebook
+---
+```
+Calling libraries
+```
+
+```{r}
+library(tidyverse)
+library(vtable)
+library(readxl)
+library(gtable)
+```
+
+```
+Reading and formatting data
+```
+
+```{r}
+setwd("C:/location")
+data = read_xlsx("international-visitors-london.xlsx", sheet = 5)
+data = subset(data, select = -area)
+data$year[is.na(data$year)] = 2020
+```
+
+```
+Summary statistics on numeric variables
+```
+
+```{r}
+sum_table = data %>%
+  select(`Visits (000s)`, `Spend (£m)`, `Nights (000s)`, sample)
+sumtable(sum_table, add.median = T, fixed.digits = T)
+```
+
+```
+Mode function (for EDA)
+```
+
+```{r}
+getmode <- function(v) {
+  uniqv <- unique(v)
+  uniqv[which.max(tabulate(match(v, uniqv)))]
+}
+```
+
+```
+Exploratory Data Analysis (EDA)
+```
+
+```
+Checking for missing values
+```
+
+
+```{r}
+sapply(data, function(x) sum(is.na(x)))
+```
+
+```
+Filtering out rows where sample size is 1
+```
+
+```{r}
+data %>%
+  group_by(sample == "1", sample != "1") %>%
+  summarise(
+  n = n()
+)
+data = data %>%
+  filter(sample != "1")
+```
+
+```
+Exploring simple sums
+```
+
+```{r}
+data %>%
+  group_by(market) %>%
+  summarise(
+  total_visits = sum(`Visits (000s)`),
+  total_spend = sum(`Spend (£m)`),
+  total_nights = sum(`Nights (000s)`),
+  observations = n()
+) %>%
+  arrange(desc(total_visits))
+
+data %>%
+  group_by(purpose) %>%
+  summarise(
+  total_visits = sum(`Visits (000s)`),
+  total_spend = sum(`Spend (£m)`),
+  total_nights = sum(`Nights (000s)`),
+  observations = n()
+) %>%
+  arrange(desc(total_visits))
+
+data %>%
+  group_by(quarter) %>%
+  summarise(
+  total_visits = sum(`Visits (000s)`),
+  total_spend = sum(`Spend (£m)`),
+  total_nights = sum(`Nights (000s)`),
+  observations = n()
+) %>%
+  arrange(desc(total_visits))
+```
+
+```
+Calculated columns for more granularity
+```
+
+```{r}
+view(data %>%
+       group_by(market) %>%
+       summarise(
+  total_visits = sum(`Visits (000s)`),
+  total_spend = sum(`Spend (£m)`),
+  total_nights = sum(`Nights (000s)`),
+  nights_per_visit = total_nights/total_visits,
+  spend_per_night = total_spend/total_nights,
+  spend_per_visit = total_spend/total_visits,
+  most_common_transport = getmode(mode),
+  most_common_purpose = getmode(purpose)
+) %>%
+  arrange(desc(total_visits)))
+
+view(data %>%
+       group_by(purpose) %>%
+       summarise(
+  total_visits = sum(`Visits (000s)`),
+  total_spend = sum(`Spend (£m)`),
+  total_nights = sum(`Nights (000s)`),
+  nights_per_visit = total_nights/total_visits,
+  spend_per_night = total_spend/total_nights,
+  spend_per_visit = total_spend/total_visits,
+  most_common_transport = getmode(mode),
+  most_common_season = getmode(quarter)
+) %>%
+  arrange(desc(total_visits)))
+```
+
+```
+Exploring visual representations
+```
+
+```{r}
+data %>% 
+  ggplot() + geom_point(
+    aes(x = log2(data$`Nights (000s)`),
+        y = log2(data$`Spend (£m)`)))
+
+data %>% 
+  group_by(quarter) %>%
+  summarise(
+    total_visits = sum(`Visits (000s)`)) %>%
+  mutate(name = fct_reorder(quarter, desc(total_visits))) %>%
+  ggplot(
+    aes(total_visits, name)) + geom_col() + labs(x = "Total Visits", y = "Season")
+```
+
+```
+Summary Table - Top 10 countries by nights per visit
+```
+
+```{r}
+extended_stay = gt(data %>%
+                     group_by(market) %>%
+                     summarise(
+  mode = getmode(mode),
+  purpose = getmode(purpose),
+  total_spend = sum(`Spend (£m)`),
+  total_visits = sum(`Visits (000s)`),
+  total_nights = sum(`Nights (000s)`),
+  spend_per_visit = total_spend/total_visits,
+  nights_per_visit = total_nights/total_visits
+) %>%
+  arrange(desc(nights_per_visit)) %>%
+  top_n(10))
+
+extended_stay = tab_header(extended_stay,
+                           title = "Top 10 Countries by Nights per Visit",
+                           subtitle = "Visitors from South Asia and Africa stayed the longest, and they usually traveled via airplane to visit family/relatives or for holiday")
+
+extended_stay = cols_label(
+  extended_stay,
+  "market" = "Country/Region",
+  "mode" = "Mode",
+  "purpose" = "Purpose",
+  "total_spend" = "Total Spend (£m)",
+  "total_visits" = "Total Visits (000s)",
+  "total_nights" = "Total Nights (000s)",
+  "spend_per_visit" = "Spend per Visit",
+  "nights_per_visit" = "Nights per Visit")
+
+print(extended_stay)
+```
+
+```
+Summary Table - Top 10 countries by spend/night
+```
+
+```{r}
+big_spenders = gt(data %>%
+                    group_by(market) %>%
+                    summarise(
+  purpose = getmode(purpose),
+  total_spend = sum(`Spend (£m)`),
+  total_visits = sum(`Visits (000s)`),
+  total_nights = sum(`Nights (000s)`),
+  nights_per_visit = total_nights/total_visits,
+  spend_per_visit = total_spend/total_visits,
+  spend_per_night = total_spend/total_nights
+) %>%
+  arrange(desc(spend_per_night)) %>%
+  top_n(10))
+
+big_spenders = tab_header(big_spenders, "Top 10 Countries by Spend per Night",
+                           subtitle = "Visitors from the Middle East dominate the list, staying longer per visit and spending more per night. Holiday trips were the most common reason for these high-spending trips")
+
+big_spenders = cols_label(
+  big_spenders,
+  "market" = "Country/Region",
+  "purpose" = "Purpose",
+  "total_spend" = "Total Spend (£m)",
+  "total_visits" = "Total Visits (000s)",
+  "total_nights" = "Total Nights (000s)",
+  "spend_per_visit" = "Spend per Visit",
+  "nights_per_visit" = "Nights per Visit",
+  "spend_per_night" = "Spend per Night")
+
+print(big_spenders)
+```
+
+```
+Summary Table - Stay length
+```
+
+```{r}
+duration = gt(data %>%
+                group_by(dur_stay) %>%
+                summarise(
+  Observations = n(),
+  Total_Spend = sum(`Spend (£m)`),
+  Total_Visits = sum(`Visits (000s)`),
+  Total_Nights = sum(`Nights (000s)`),
+  Nights_per_Visit = Total_Nights/Total_Visits,
+  Spend_per_Visit = Total_Spend/Total_Visits,
+  Spend_per_Night = Total_Spend/Total_Nights 
+) %>%
+  arrange(desc(Spend_per_Night)))
+
+duration = tab_header(duration, "Summary Table on Stay Length",
+                      subtitle = "1-3 night visits were the frequent observations. While spend per visit increases over stay length, spend per night is greatest for shorter stays")
+duration = cols_label(
+  duration,
+  "dur_stay" = "Stay",
+  "Total_Spend" = "Total Spend (£m)",
+  "Total_Visits" = "Total Visits (000s)",
+  "Total_Nights" = "Total Nights (000s)",
+  "Nights_per_Visit" = "Nights per Visit",
+  "Spend_per_Visit" = "Spend per Visit",
+  "Spend_per_Night" = "Spend per Night")
+
+print(duration)
+```
+
+```
+EDA - Selected Figures
+```
+
+```
+Distribution of Spend by Mode
+```
+
+```{r}
+data %>%
+  ggplot() + geom_density(
+    aes(x = log10(`Spend (£m)`),
+        color = data$mode,
+        fill = data$mode),
+        alpha = 0.5) + labs(
+    title = "Distribution of Spend (£m) across Modes of Transportation",
+    subtitle = "Visitors traveling via airplane spend the most on average, followed by visitors by tunnel and then sea",
+    fill = "Modes of Transportation",
+    x = "Log10 of Spend (£m)") + guides(color = FALSE)
+```
+
+```
+Total Visits over Time
+```
+
+```{r}
+data %>%
+  filter(year != "2020") %>%
+  group_by(year) %>%
+  summarise(Total_Visits = sum(`Visits (000s)`)) %>%
+  ggplot(
+    aes(year,
+        Total_Visits,
+        fill = 'red')) + geom_col() + labs(
+    title = "Total Visits from 2002 to 2019",
+    subtitle = "Visitors to London have steadily increased over time, with 2017 being the peak",
+    x = "Years",
+    y = "Total Visits") + theme(legend.position = "none")
+```
+
+```
+Boxplots of Spend per Night by Travel Purpose
+```
+
+```{r}
+data %>%
+  mutate(spend_per_night = `Spend (£m)`/`Nights (000s)`) %>%
+  ggplot(
+    aes(x = data$purpose,
+        y = log2(spend_per_night))) + geom_boxplot() + labs(
+    title = "Boxplots of Spend per Night by Travel Purpose",
+    subtitle = "Business trips spent had the highest amount of spend per night, even if Study had the most total spend",
+    x = "",
+    y = "Log2 of Spend per Night") + theme(legend.position = "none")
+```
